@@ -35,7 +35,6 @@ class _VerdictDashboardScreenState extends ConsumerState<VerdictDashboardScreen>
   bool _isSpeaking = false;
   bool _isRetrying = false;
   String? _analysisBlockedMessage;
-  bool _canUseLimitedFallback = false;
   bool get _hasAnalysisInput => _analysisRequest.ocrText.trim().isNotEmpty;
 
   @override
@@ -101,7 +100,6 @@ class _VerdictDashboardScreenState extends ConsumerState<VerdictDashboardScreen>
 
       setState(() {
         _analysisBlockedMessage = null;
-        _canUseLimitedFallback = false;
         _analysisResult = result;
         _riskScore = result['risk_score'] as int? ?? 0;
         _gaugeController.forward(from: 0);
@@ -120,7 +118,6 @@ class _VerdictDashboardScreenState extends ConsumerState<VerdictDashboardScreen>
       setState(() {
         _analysisResult = null;
         _analysisBlockedMessage = error.message;
-        _canUseLimitedFallback = false;
       });
     } catch (e) {
       if (!mounted) {
@@ -131,7 +128,6 @@ class _VerdictDashboardScreenState extends ConsumerState<VerdictDashboardScreen>
         _analysisResult = null;
         _analysisBlockedMessage =
             'Analysis failed to initialize: ${e.toString()}';
-        _canUseLimitedFallback = false;
       });
     }
   }
@@ -169,7 +165,6 @@ class _VerdictDashboardScreenState extends ConsumerState<VerdictDashboardScreen>
 
     setState(() {
       _analysisBlockedMessage = null;
-      _canUseLimitedFallback = false;
     });
 
     try {

@@ -1953,6 +1953,7 @@ $ending
     };
   }
 
+  // ignore: unused_element
   Map<String, dynamic> _buildRulesBasedAssessment({
     required String ocrText,
     required String userContext,
@@ -2002,7 +2003,7 @@ $ending
             ? copy.moderateRisk
             : copy.limitedRisk;
     List<Map<String, dynamic>> topRisks = [];
-    
+
     if (signals.hasGuarantorTerms || riskScore >= 5) {
       topRisks.add({
         'title': copy.personalLiability,
