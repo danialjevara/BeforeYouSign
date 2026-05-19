@@ -1166,19 +1166,28 @@ Respond with JSON only.
 
   Future<String> _collectSessionResponse(InferenceModelSession session) async {
     final buffer = StringBuffer();
-    await for (final chunk in session.getResponseAsync().timeout(
-      _responseIdleTimeout,
-      onTimeout: (sink) {
-        sink.addError(
-          TimeoutException(
-            'Gemma did not emit output for '
-            '${_responseIdleTimeout.inSeconds} seconds.',
-          ),
-        );
-        sink.close();
-      },
-    )) {
-      buffer.write(chunk);
+    try {
+      await for (final chunk in session.getResponseAsync().timeout(
+        _responseIdleTimeout,
+        onTimeout: (sink) {
+          sink.addError(
+            TimeoutException(
+              'Gemma did not emit output for '
+              '${_responseIdleTimeout.inSeconds} seconds.',
+            ),
+          );
+          sink.close();
+        },
+      )) {
+        buffer.write(chunk);
+      }
+    } on TimeoutException {
+      try {
+        await session.stopGeneration();
+      } catch (e) {
+        debugPrint('GEMMA: stopGeneration after timeout failed: $e');
+      }
+      rethrow;
     }
     return buffer.toString();
   }
