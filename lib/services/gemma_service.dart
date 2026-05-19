@@ -72,6 +72,13 @@ class GemmaService extends ChangeNotifier {
   static const int _compactRiskExcerptRadiusChars = 80;
   static const int _maxRiskExcerptChars = 600;
   static const int _maxCompactRiskExcerptChars = 300;
+  static const Duration _modelStartupTimeout = Duration(seconds: 35);
+  static const Duration _sessionStartupTimeout = Duration(seconds: 20);
+  static const Duration _queryAddTimeout = Duration(seconds: 10);
+  static const Duration _responseIdleTimeout = Duration(seconds: 45);
+  static const Duration _responseTotalTimeout = Duration(seconds: 90);
+  static const Duration _sessionCloseTimeout = Duration(seconds: 5);
+  static const Duration _overallInferenceTimeout = Duration(seconds: 100);
   static const String _downloadGroup = 'gemma-model-download';
   static const String _downloadTaskId = 'gemma-4-e2b-model';
   static const String _downloadDirectory = 'models';
@@ -392,10 +399,7 @@ RULES:
       final internalPath = await _internalModelPath;
 
       if (await _isVerifiedModelFile(internalPath)) {
-        await _linkGemmaModel(
-          internalPath,
-          logPrefix: 'GEMMA INTERNAL',
-        );
+        await _linkGemmaModel(internalPath, logPrefix: 'GEMMA INTERNAL');
         await _markModelReady();
       } else {
         final installedFromLocalFile = await _tryInstallFromLocalFile();
@@ -426,10 +430,7 @@ RULES:
 
   Future<bool> _isVerifiedModelFile(String path) async {
     try {
-      await _verifyModelFileIntegrity(
-        path,
-        useCachedVerification: true,
-      );
+      await _verifyModelFileIntegrity(path, useCachedVerification: true);
       return true;
     } catch (e) {
       debugPrint('GEMMA: Model file is not verified: $e');
@@ -538,7 +539,8 @@ RULES:
       }
     } catch (cacheError) {
       debugPrint(
-          'GEMMA: Could not clean engine cache (non-fatal): $cacheError');
+        'GEMMA: Could not clean engine cache (non-fatal): $cacheError',
+      );
     }
   }
 
@@ -643,10 +645,7 @@ RULES:
         notifyListeners();
 
         await _deleteGemmaEngineCaches(destPath);
-        await _linkGemmaModel(
-          destPath,
-          logPrefix: 'GEMMA SIDELOAD',
-        );
+        await _linkGemmaModel(destPath, logPrefix: 'GEMMA SIDELOAD');
         final backendLabel = await _runInstalledModelHealthCheck();
 
         debugPrint(
@@ -677,9 +676,7 @@ RULES:
 
   Future<bool> importModelFromPicker() async {
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.any,
-      );
+      final result = await FilePicker.pickFiles(type: FileType.any);
       if (result == null || result.files.isEmpty) {
         return false;
       }
@@ -691,7 +688,8 @@ RULES:
       final file = File(pickedPath);
       final fileLength = await file.length();
       if (fileLength < _minimumValidModelSizeBytes) {
-        _lastError = 'الملف المختار صغير جداً ولا يمكن أن يكون نموذج Gemma صالح.';
+        _lastError =
+            'الملف المختار صغير جداً ولا يمكن أن يكون نموذج Gemma صالح.';
         _status = GemmaModelStatus.error;
         notifyListeners();
         return false;
@@ -757,7 +755,8 @@ RULES:
       }
     } catch (e) {
       debugPrint(
-          'GEMMA: Sideload attempt failed, falling back to download: $e');
+        'GEMMA: Sideload attempt failed, falling back to download: $e',
+      );
     }
 
     if (_status == GemmaModelStatus.paused) {
@@ -845,7 +844,8 @@ RULES:
       }
     } catch (e) {
       debugPrint(
-          'GEMMA: Sideload attempt failed in resume, falling back to network resume: $e');
+        'GEMMA: Sideload attempt failed in resume, falling back to network resume: $e',
+      );
     }
 
     final task = _downloadTask ?? _createDownloadTask();
@@ -902,7 +902,8 @@ RULES:
       }
     } catch (e) {
       debugPrint(
-          'GEMMA: Sideload attempt failed in restart, falling back to network restart: $e');
+        'GEMMA: Sideload attempt failed in restart, falling back to network restart: $e',
+      );
     }
 
     _status = GemmaModelStatus.downloading;
@@ -929,13 +930,20 @@ RULES:
   String _localeToLanguageName(String localeTag) {
     final code = localeTag.split('_').first.toLowerCase();
     switch (code) {
-      case 'ar': return 'Arabic';
-      case 'es': return 'Spanish';
-      case 'fr': return 'French';
-      case 'pt': return 'Portuguese';
-      case 'hi': return 'Hindi';
-      case 'zh': return 'Chinese';
-      default: return 'English';
+      case 'ar':
+        return 'Arabic';
+      case 'es':
+        return 'Spanish';
+      case 'fr':
+        return 'French';
+      case 'pt':
+        return 'Portuguese';
+      case 'hi':
+        return 'Hindi';
+      case 'zh':
+        return 'Chinese';
+      default:
+        return 'English';
     }
   }
 
@@ -948,7 +956,7 @@ RULES:
     final jurisdictionHint = jurisdictionHintFor(locationContext);
     final countryHint = _countryCodeHintFromLocale(locationContext);
     final languageName = _localeToLanguageName(locationContext);
-    
+
     final preparedDocumentText = prepareDocumentTextForPrompt(
       ocrText,
       compact: compact,
@@ -958,7 +966,8 @@ RULES:
       compact: compact,
     );
 
-    final languageDirective = 'CRITICAL: ALL JSON string values MUST be written in $languageName.';
+    final languageDirective =
+        'CRITICAL: ALL JSON string values MUST be written in $languageName.';
 
     if (compact) {
       return '''
@@ -1031,7 +1040,7 @@ Respond with JSON only.
       final inference = await _runGemmaInference(
         prompt: prompt,
         compactPrompt: compactPrompt,
-      );
+      ).timeout(_overallInferenceTimeout);
       final parsedJson = _parseGemmaJson(
         inference.responseText,
         copy,
@@ -1048,9 +1057,19 @@ Respond with JSON only.
       _lastError = 'Gemma inference failed. $e';
       debugPrint('GEMMA ERROR: $_lastError');
       notifyListeners();
+
+      if (ocrText.trim().isNotEmpty) {
+        return _buildRulesBasedAssessment(
+          ocrText: ocrText,
+          userContext: audioTranscript,
+          notice: copy.gemmaCouldNotFinish,
+          copy: copy,
+        );
+      }
+
       throw GemmaRequirementException(
         message: copy.gemmaCouldNotFinish,
-        canUseLimitedFallback: false,
+        canUseLimitedFallback: true,
       );
     }
   }
@@ -1064,20 +1083,21 @@ Respond with JSON only.
     final errorLog = StringBuffer();
     final promptAttempts = [
       (
-        text: prompt,
-        label: 'standard prompt',
-        maxTokens: _primaryGemmaContextTokens,
-      ),
-      (
         text: compactPrompt,
         label: 'compact prompt',
         maxTokens: _fallbackGemmaContextTokens,
+      ),
+      (
+        text: prompt,
+        label: 'standard prompt',
+        maxTokens: _primaryGemmaContextTokens,
       ),
     ];
 
     for (final promptAttempt in promptAttempts) {
       for (final (backend: backend, label: backendLabel)
           in _gemmaBackendAttempts) {
+        InferenceModelSession? session;
         try {
           debugPrint(
             'GEMMA: Trying $backendLabel ${promptAttempt.label} '
@@ -1087,14 +1107,28 @@ Respond with JSON only.
             maxTokens: promptAttempt.maxTokens,
             preferredBackend: backend,
             enableSpeculativeDecoding: false,
-          );
-          final session = await model.createSession();
+          ).timeout(_modelStartupTimeout);
+          session = await model
+              .createSession(
+                temperature: 0.2,
+                randomSeed: 7,
+                topK: 1,
+                enableThinking: false,
+              )
+              .timeout(_sessionStartupTimeout);
 
           try {
-            await session.addQueryChunk(
-              Message.text(text: promptAttempt.text, isUser: true),
-            );
-            final responseText = await session.getResponse();
+            await session
+                .addQueryChunk(
+                  Message.text(text: promptAttempt.text, isUser: true),
+                )
+                .timeout(_queryAddTimeout);
+            final responseText = await _collectSessionResponse(
+              session,
+            ).timeout(_responseTotalTimeout);
+            if (responseText.trim().isEmpty) {
+              throw const FormatException('Gemma returned an empty response.');
+            }
             debugPrint(
               'GEMMA: Success on $backendLabel ${promptAttempt.label} '
               'with ${promptAttempt.maxTokens} context tokens',
@@ -1106,7 +1140,7 @@ Respond with JSON only.
             );
           } finally {
             try {
-              await session.close();
+              await session.close().timeout(_sessionCloseTimeout);
             } catch (e) {
               debugPrint('GEMMA: session.close() error (ignored): $e');
             }
@@ -1128,6 +1162,25 @@ Respond with JSON only.
       'All inference attempts failed:\n$errorLog\n'
       'Last: $lastAttemptLabel → $lastError',
     );
+  }
+
+  Future<String> _collectSessionResponse(InferenceModelSession session) async {
+    final buffer = StringBuffer();
+    await for (final chunk in session.getResponseAsync().timeout(
+      _responseIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(
+          TimeoutException(
+            'Gemma did not emit output for '
+            '${_responseIdleTimeout.inSeconds} seconds.',
+          ),
+        );
+        sink.close();
+      },
+    )) {
+      buffer.write(chunk);
+    }
+    return buffer.toString();
   }
 
   Future<void> _ensureDownloadManager() async {
@@ -1473,10 +1526,7 @@ Respond with JSON only.
       );
 
       await _deleteGemmaEngineCaches(filePath);
-      await _linkGemmaModel(
-        filePath,
-        logPrefix: 'GEMMA DOWNLOAD',
-      );
+      await _linkGemmaModel(filePath, logPrefix: 'GEMMA DOWNLOAD');
 
       debugPrint('GEMMA: Running post-install health check...');
       try {
@@ -1726,10 +1776,7 @@ $ending
         .trim();
   }
 
-  static String _buildRiskFocusedExcerpts(
-    String text, {
-    bool compact = false,
-  }) {
+  static String _buildRiskFocusedExcerpts(String text, {bool compact = false}) {
     final lowerText = text.toLowerCase();
     final excerptRadius =
         compact ? _compactRiskExcerptRadiusChars : _riskExcerptRadiusChars;
@@ -1900,7 +1947,8 @@ $ending
 
           topRisks.add({
             'title': riskMap['title']?.toString() ?? copy.reviewRisk,
-            'description': riskMap['description']?.toString() ?? copy.reviewRisk,
+            'description':
+                riskMap['description']?.toString() ?? copy.reviewRisk,
             'why_dangerous': riskMap['why_dangerous']?.toString().trim() ??
                 riskMap['description']?.toString() ??
                 copy.reviewRisk,
@@ -1953,7 +2001,6 @@ $ending
     };
   }
 
-  // ignore: unused_element
   Map<String, dynamic> _buildRulesBasedAssessment({
     required String ocrText,
     required String userContext,
